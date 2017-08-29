@@ -4,9 +4,11 @@ import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
-import android.hardware.Camera.Size;
+import android.hardware.Camera;
+import android.hardware.camera2.*;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.util.Size;
 import android.view.TextureView;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -22,7 +24,8 @@ public class LiveCameraActivity extends AppCompatActivity
         System.loadLibrary("livecamera");
     }
 
-    private Camera mCamera;
+    private CameraSupport mCamera;
+
     private TextureView mTextureView;
     private byte[] mVideoSource;
     private ImageView mImageViewR, mImageViewG, mImageViewB;
@@ -53,7 +56,16 @@ public class LiveCameraActivity extends AppCompatActivity
 
     @Override
     public void onSurfaceTextureAvailable(SurfaceTexture pSurface, int pWidth, int pHeight) {
-        mCamera = Camera.open();
+        mCamera = CameraFactory.cameraSupport(this);
+        mCamera.open();
+
+
+        openCamera();
+    }
+
+    private void openCamera() {
+        mCamera = CameraFactory.cameraSupport(this);
+        mCamera.open();
         try {
             mCamera.setPreviewTexture(pSurface);
             mCamera.setPreviewCallbackWithBuffer(this);
@@ -94,6 +106,7 @@ public class LiveCameraActivity extends AppCompatActivity
             mCamera = null;
             throw new IllegalStateException();
         }
+
     }
 
     private Size findBestResolution(int pWidth, int pHeight) {
@@ -163,4 +176,30 @@ public class LiveCameraActivity extends AppCompatActivity
     }
 
     public native void decode(Bitmap pTarget, byte[] pSource, int pFilter);
+
+    /**
+     * Opens the camera specified by {@link Camera2BasicFragment#mCameraId}.
+     */
+    private void openCamera(int width, int height) {
+        if (ContextCompat.checkSelfPermission(getActivity(), Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestCameraPermission();
+            return;
+        }
+        setUpCameraOutputs(width, height);
+        configureTransform(width, height);
+        Activity activity = getActivity();
+        CameraManager manager = (CameraManager) activity.getSystemService(Context.CAMERA_SERVICE);
+        try {
+            if (!mCameraOpenCloseLock.tryAcquire(2500, TimeUnit.MILLISECONDS)) {
+                throw new RuntimeException("Time out waiting to lock camera opening.");
+            }
+            manager.openCamera(mCameraId, mStateCallback, mBackgroundHandler);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        } catch (InterruptedException e) {
+            throw new RuntimeException("Interrupted while trying to lock camera opening.", e);
+        }
+    }
+
 }
